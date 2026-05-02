@@ -703,20 +703,18 @@ class ClimateGroupHelper(GroupEntity, ClimateEntity, RestoreEntity):
         # Return modes sorted in the order of the HVACMode enum
         return [m for m in HVACMode if m in all_modes]
 
-    def _determine_hvac_mode(self, current_hvac_modes: list[str]) -> HVACMode | str | None:
-        """Determine the group's HVAC mode based on member modes and strategy."""
-        
-        # Optimistic UI Update (Grace Period)
-        # Shows target_state.hvac_mode immediately after a UI command to prevent
-        # flicker while devices echo their old state back. A one-shot timer fires
-        # async_write_ha_state() at expiry so the display corrects itself even if
-        # no further state event arrives (e.g. device changes mode implicitly).
+    def _is_grace_period_active(self) -> bool:
+        """Return True if a UI command was issued within grace_period seconds ago.
+
+        Arms a one-shot refresh timer on the first call that enters the window so
+        the display corrects itself even when no further device state event arrives.
+        Cancels the timer and returns False once the window closes.
+        """
         elapsed = time.time() - (self.shared_target_state.last_timestamp or 0)
         if (
             self.shared_target_state.last_source == "ui"
             and self.shared_target_state.last_timestamp
             and elapsed < self.grace_period
-            and self.shared_target_state.hvac_mode is not None
         ):
             if self._grace_period_unsub is None:
                 remaining = self.grace_period - elapsed
@@ -728,13 +726,18 @@ class ClimateGroupHelper(GroupEntity, ClimateEntity, RestoreEntity):
                     self.async_defer_or_update_ha_state()
 
                 self._grace_period_unsub = async_call_later(self.hass, remaining, _grace_period_expired)
-            _LOGGER.debug("[%s] Applying optimistic state: %s", self.entity_id, self.shared_target_state.hvac_mode)
-            return self.shared_target_state.hvac_mode
+            return True
 
-        # Grace period expired or not active — cancel any pending timer
         if self._grace_period_unsub is not None:
             self._grace_period_unsub()
             self._grace_period_unsub = None
+        return False
+
+    def _determine_hvac_mode(self, current_hvac_modes: list[str]) -> HVACMode | str | None:
+        """Determine the group's HVAC mode based on member modes and strategy."""
+        if self._is_grace_period_active() and self.shared_target_state.hvac_mode is not None:
+            _LOGGER.debug("[%s] Applying optimistic state: %s", self.entity_id, self.shared_target_state.hvac_mode)
+            return self.shared_target_state.hvac_mode
 
         active_hvac_modes = [mode for mode in current_hvac_modes if mode != HVACMode.OFF]
 
@@ -1042,6 +1045,16 @@ class ClimateGroupHelper(GroupEntity, ClimateEntity, RestoreEntity):
             if val is not None:
                 setattr(self, attr, self.mean_round(val, self._temp_round))
 
+        # Optimistic UI: hold commanded target temperatures during grace period
+        if self._is_grace_period_active():
+            ts = self.shared_target_state
+            if ts.temperature is not None:
+                self._attr_target_temperature = ts.temperature
+            if ts.target_temp_low is not None:
+                self._attr_target_temperature_low = ts.target_temp_low
+            if ts.target_temp_high is not None:
+                self._attr_target_temperature_high = ts.target_temp_high
+
         # Temperature limits and step
         self._attr_target_temperature_step = reduce_attribute(self.states, ATTR_TARGET_TEMP_STEP, reduce=max)
         if self._feature_strategy == FeatureStrategy.UNION:
@@ -1078,6 +1091,12 @@ class ClimateGroupHelper(GroupEntity, ClimateEntity, RestoreEntity):
         if self._attr_target_humidity is not None:
             self._attr_target_humidity = self.mean_round(self._attr_target_humidity, self._humidity_round)
 
+        # Optimistic UI: hold commanded target humidity during grace period
+        if self._is_grace_period_active():
+            ts = self.shared_target_state
+            if ts.humidity is not None:
+                self._attr_target_humidity = ts.humidity
+
         # Humidity limits
         self._attr_min_humidity = reduce_attribute(self.states, ATTR_MIN_HUMIDITY, reduce=max, default=DEFAULT_MIN_HUMIDITY)
         self._attr_max_humidity = reduce_attribute(self.states, ATTR_MAX_HUMIDITY, reduce=min, default=DEFAULT_MAX_HUMIDITY)
@@ -1095,6 +1114,18 @@ class ClimateGroupHelper(GroupEntity, ClimateEntity, RestoreEntity):
 
         self._attr_swing_horizontal_modes = sorted(self._reduce_attributes(list(find_state_attributes(self.states, ATTR_SWING_HORIZONTAL_MODES))))
         self._attr_swing_horizontal_mode = most_frequent_attribute(self.states, ATTR_SWING_HORIZONTAL_MODE)
+
+        # Optimistic UI: hold commanded modes during grace period
+        if self._is_grace_period_active():
+            ts = self.shared_target_state
+            if ts.fan_mode is not None:
+                self._attr_fan_mode = ts.fan_mode
+            if ts.preset_mode is not None:
+                self._attr_preset_mode = ts.preset_mode
+            if ts.swing_mode is not None:
+                self._attr_swing_mode = ts.swing_mode
+            if ts.swing_horizontal_mode is not None:
+                self._attr_swing_horizontal_mode = ts.swing_horizontal_mode
 
         # Supported features
         attr_supported_features = self._reduce_attributes(list(find_state_attributes(self.states, ATTR_SUPPORTED_FEATURES)), default=0)

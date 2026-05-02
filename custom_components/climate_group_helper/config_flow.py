@@ -28,6 +28,8 @@ from .const import (
     CONF_CALIBRATION_IGNORE_OFF,
     CONF_CLOSE_DELAY,
     CONF_DEBOUNCE_DELAY,
+    CONF_GRACE_PERIOD,
+    DEFAULT_GRACE_PERIOD,
     CONF_EXPAND_SECTIONS,
     CONF_EXPOSE_CONFIG,
     CONF_EXPOSE_MEMBER_ENTITIES,
@@ -760,6 +762,9 @@ class ClimateGroupHelperOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Optional(CONF_STAGGERED_CALL_DELAY, default=config.get(CONF_STAGGERED_CALL_DELAY, 0.0)): selector.NumberSelector(
                         selector.NumberSelectorConfig(min=0, max=2, step=0.1, unit_of_measurement="s", mode=selector.NumberSelectorMode.SLIDER)
+                    ),
+                    vol.Optional(CONF_GRACE_PERIOD, default=config.get(CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD)): selector.NumberSelector(
+                        selector.NumberSelectorConfig(min=0, max=30, step=0.5, unit_of_measurement="s", mode=selector.NumberSelectorMode.SLIDER)
                     ),
                     vol.Optional(CONF_EXPOSE_SMART_SENSORS, default=config.get(CONF_EXPOSE_SMART_SENSORS, False)): bool,
                     vol.Optional(CONF_EXPOSE_MEMBER_ENTITIES, default=config.get(CONF_EXPOSE_MEMBER_ENTITIES, True)): bool,

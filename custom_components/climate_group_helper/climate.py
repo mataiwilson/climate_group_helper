@@ -77,6 +77,8 @@ from .const import (
     ATTR_SETTINGS,
     CONF_ADVANCED_MODE,
     CONF_DEBOUNCE_DELAY,
+    CONF_GRACE_PERIOD,
+    DEFAULT_GRACE_PERIOD,
     CONF_EXPOSE_MEMBER_ENTITIES,
     CONF_FEATURE_STRATEGY,
     CONF_HUMIDITY_CURRENT_AVG,
@@ -305,6 +307,7 @@ class ClimateGroupHelper(GroupEntity, ClimateEntity, RestoreEntity):
         self.retry_attempts = int(config.get(CONF_RETRY_ATTEMPTS, 0))
         self.retry_delay = config.get(CONF_RETRY_DELAY, 1)
         self.stagger_delay = config.get(CONF_STAGGERED_CALL_DELAY, 0.0)
+        self.grace_period = float(config.get(CONF_GRACE_PERIOD, DEFAULT_GRACE_PERIOD))
         self.temp_sensor_entity_ids = _get_adv(CONF_TEMP_SENSORS, [])
         self.temp_update_target_entity_ids = _get_adv(CONF_TEMP_UPDATE_TARGETS, [])
         self.humidity_sensor_entity_ids = _get_adv(CONF_HUMIDITY_SENSORS, [])
@@ -712,11 +715,11 @@ class ClimateGroupHelper(GroupEntity, ClimateEntity, RestoreEntity):
         if (
             self.shared_target_state.last_source == "ui"
             and self.shared_target_state.last_timestamp
-            and elapsed < 3.0
+            and elapsed < self.grace_period
             and self.shared_target_state.hvac_mode is not None
         ):
             if self._grace_period_unsub is None:
-                remaining = 3.0 - elapsed
+                remaining = self.grace_period - elapsed
 
                 @callback
                 def _grace_period_expired(_now):
